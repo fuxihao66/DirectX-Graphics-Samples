@@ -18,13 +18,13 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers.
 #endif
+#include "packages/Microsoft.Direct3D.D3D12.1.711.3-preview/build/native/include/d3d12.h"
 
 #include <windows.h>
 
 #include <d2d1_3.h>
 #include <dwrite.h>
 #include <d3d11on12.h>
-#include <d3d12.h>
 #include <dxgi1_6.h>
 #include <D3Dcompiler.h>
 #include <DirectXMath.h>

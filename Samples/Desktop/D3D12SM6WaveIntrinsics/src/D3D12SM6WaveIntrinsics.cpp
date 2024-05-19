@@ -8,6 +8,7 @@
 // PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.
 //
 //*********************************************************
+#include <iostream>
 
 #include "stdafx.h"
 #include "D3D12SM6WaveIntrinsics.h"
@@ -17,6 +18,12 @@
 #include "magnify_vs.hlsl.h"
 #include "magnify_ps.hlsl.h"
 
+extern "C"
+{
+    __declspec(dllexport) extern const UINT D3D12SDKVersion = 711;
+    __declspec(dllexport) extern const char* D3D12SDKPath = ".\\D3D12\\";
+
+}
 
 // Note that Windows 10 Creator Update SDK is required for enabling Shader Model 6 feature.
 static HRESULT EnableExperimentalShaderModels() {
@@ -78,6 +85,13 @@ void D3D12SM6WaveIntrinsics::CreateDevice(const ComPtr<IDXGIFactory4>& factory)
             IID_PPV_ARGS(&m_d3d12Device)
         ));
     }
+
+    D3D12_FEATURE_DATA_WAVE_MMA waveMmaSupport = {};
+    waveMmaSupport.InputDataType = D3D12_WAVE_MMA_INPUT_DATATYPE_FLOAT16;
+    waveMmaSupport.M = D3D12_WAVE_MMA_DIMENSION_16;
+    waveMmaSupport.N = D3D12_WAVE_MMA_DIMENSION_16;
+    m_d3d12Device->CheckFeatureSupport(D3D12_FEATURE_WAVE_MMA, &waveMmaSupport, sizeof(D3D12_FEATURE_DATA_WAVE_MMA));
+    
 }
 
 
