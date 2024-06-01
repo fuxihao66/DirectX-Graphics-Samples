@@ -18,6 +18,8 @@
 #include "magnify_vs.hlsl.h"
 #include "magnify_ps.hlsl.h"
 
+#include "test_wave_matrix.hlsl.h" //g_WaveMatrix_CS
+
 extern "C"
 {
     __declspec(dllexport) extern const UINT D3D12SDKVersion = 711;
@@ -70,7 +72,7 @@ void D3D12SM6WaveIntrinsics::CreateDevice(const ComPtr<IDXGIFactory4>& factory)
 
         ThrowIfFailed(D3D12CreateDevice(
             warpAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_12_2,
             IID_PPV_ARGS(&m_d3d12Device)
         ));
     }
@@ -81,7 +83,7 @@ void D3D12SM6WaveIntrinsics::CreateDevice(const ComPtr<IDXGIFactory4>& factory)
 
         ThrowIfFailed(D3D12CreateDevice(
             hardwareAdapter.Get(),
-            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_12_2,
             IID_PPV_ARGS(&m_d3d12Device)
         ));
     }
@@ -91,7 +93,6 @@ void D3D12SM6WaveIntrinsics::CreateDevice(const ComPtr<IDXGIFactory4>& factory)
     waveMmaSupport.M = D3D12_WAVE_MMA_DIMENSION_16;
     waveMmaSupport.N = D3D12_WAVE_MMA_DIMENSION_16;
     m_d3d12Device->CheckFeatureSupport(D3D12_FEATURE_WAVE_MMA, &waveMmaSupport, sizeof(D3D12_FEATURE_DATA_WAVE_MMA));
-    
 }
 
 
@@ -123,27 +124,27 @@ void D3D12SM6WaveIntrinsics::LoadPipeline()
     CreateDevice(factory);
 
     // Query the level of support of Shader Model.
-    D3D12_FEATURE_DATA_SHADER_MODEL shaderModelSupport = { D3D_SHADER_MODEL_6_0 };
+    D3D12_FEATURE_DATA_SHADER_MODEL shaderModelSupport = { D3D_SHADER_MODEL_6_8 };
     ThrowIfFailed(m_d3d12Device->CheckFeatureSupport((D3D12_FEATURE)D3D12_FEATURE_SHADER_MODEL, &shaderModelSupport, sizeof(shaderModelSupport)));
     // Query the level of support of Wave Intrinsics.
     ThrowIfFailed(m_d3d12Device->CheckFeatureSupport((D3D12_FEATURE)D3D12_FEATURE_D3D12_OPTIONS1, &m_WaveIntrinsicsSupport, sizeof(m_WaveIntrinsicsSupport)));
 
     // If the device doesn't support SM6 or Wave Intrinsics, try enabling the experimental feature for Shader Model 6 and creating the device again.
-    if (shaderModelSupport.HighestShaderModel != D3D_SHADER_MODEL_6_0 || m_WaveIntrinsicsSupport.WaveOps != TRUE)
+    if (shaderModelSupport.HighestShaderModel != D3D_SHADER_MODEL_6_8 || m_WaveIntrinsicsSupport.WaveOps != TRUE)
     {
         m_d3d12Device.Reset();
         ThrowIfFailed(EnableExperimentalShaderModels());
         CreateDevice(factory);
 
         // Query the level of support of Shader Model.
-        D3D12_FEATURE_DATA_SHADER_MODEL shaderModelSupport = { D3D_SHADER_MODEL_6_0 };
+        D3D12_FEATURE_DATA_SHADER_MODEL shaderModelSupport = { D3D_SHADER_MODEL_6_8 };
         ThrowIfFailed(m_d3d12Device->CheckFeatureSupport((D3D12_FEATURE)D3D12_FEATURE_SHADER_MODEL, &shaderModelSupport, sizeof(shaderModelSupport)));
         // Query the level of support of Wave Intrinsics.
         ThrowIfFailed(m_d3d12Device->CheckFeatureSupport((D3D12_FEATURE)D3D12_FEATURE_D3D12_OPTIONS1, &m_WaveIntrinsicsSupport, sizeof(m_WaveIntrinsicsSupport)));
 
         // If the device still doesn't support SM6 or Wave Intrinsics after enabling the experimental feature, you could set up your application to use the highest supported shader model.
         // For simplicity we just exit the application here. 
-        if (shaderModelSupport.HighestShaderModel != D3D_SHADER_MODEL_6_0 || m_WaveIntrinsicsSupport.WaveOps != TRUE)
+        if (shaderModelSupport.HighestShaderModel != D3D_SHADER_MODEL_6_8 || m_WaveIntrinsicsSupport.WaveOps != TRUE)
         {
             exit(-1);
         }
@@ -250,6 +251,38 @@ void D3D12SM6WaveIntrinsics::LoadAssets()
         ComPtr<ID3DBlob> error;
         ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
         ThrowIfFailed(m_d3d12Device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_renderPass1RootSignature)));
+
+    }
+    {
+        D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
+
+        // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
+        featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+
+        CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
+        CD3DX12_ROOT_PARAMETER1 rootParameters[1];
+
+        if (FAILED(m_d3d12Device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
+        {
+            featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+        }
+        // Root signature for render pass2
+        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
+        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+
+        D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
+            D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS |
+            D3D12_ROOT_SIGNATURE_FLAG_CBV_SRV_UAV_HEAP_DIRECTLY_INDEXED;
+        CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
+        rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 0, nullptr, rootSignatureFlags);
+
+        ComPtr<ID3DBlob> signature;
+        ComPtr<ID3DBlob> error;
+        ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
+        ThrowIfFailed(m_d3d12Device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&m_SM66RootSignature)));
     }
 
     {
@@ -324,6 +357,15 @@ void D3D12SM6WaveIntrinsics::LoadAssets()
         renderPass1PSODesc.SampleDesc.Count = 1;
         ThrowIfFailed(m_d3d12Device->CreateGraphicsPipelineState(&renderPass1PSODesc, IID_PPV_ARGS(&m_renderPass1PSO)));
         NAME_D3D12_OBJECT(m_renderPass1PSO);
+
+
+        D3D12_COMPUTE_PIPELINE_STATE_DESC WaveMatrixPSODesc = {};
+        WaveMatrixPSODesc.CS = { g_WaveMatrix_CS, sizeof(g_WaveMatrix_CS) };
+        WaveMatrixPSODesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+        WaveMatrixPSODesc.NodeMask = 0;
+        WaveMatrixPSODesc.pRootSignature = m_SM66RootSignature.Get();
+        ThrowIfFailed(m_d3d12Device->CreateComputePipelineState(&WaveMatrixPSODesc, IID_PPV_ARGS(&m_WaveMatrixPSO)));
+        NAME_D3D12_OBJECT(m_WaveMatrixPSO);
 
         // Define the vertex input layout for render pass 2. 
         D3D12_INPUT_ELEMENT_DESC renderPass2InputElementDescs[] =

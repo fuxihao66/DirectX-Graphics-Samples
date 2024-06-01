@@ -86,12 +86,14 @@ private:
     ComPtr<ID3D12Resource> m_uiRenderTarget;
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];
     ComPtr<ID3D12CommandQueue> m_commandQueue;
+    ComPtr<ID3D12RootSignature> m_SM66RootSignature;
     ComPtr<ID3D12RootSignature> m_renderPass1RootSignature;
     ComPtr<ID3D12RootSignature> m_renderPass2RootSignature;
     ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
     ComPtr<ID3D12DescriptorHeap> m_cbSrvHeap;
     ComPtr<ID3D12PipelineState> m_renderPass1PSO;
     ComPtr<ID3D12PipelineState> m_renderPass2PSO;
+    ComPtr<ID3D12PipelineState> m_WaveMatrixPSO;
     ComPtr<ID3D12GraphicsCommandList> m_commandList;
     UINT m_rtvDescriptorSize;
     UINT m_cbSrvDescriptorSize;
