@@ -90,7 +90,7 @@ void CSMain(
             uint2 PixelPos = groupId * uint2(TILE_SIZE, TILE_SIZE) + 
                 uint2(2 * (WaveGetLaneIndex() % 8) + j, LoopNum * 4 + WaveGetLaneIndex() / 8);
 
-            if (all(PixelPos < uint2(Width, Height)))
+            if (any(PixelPos >= uint2(Width, Height)))
                 continue;
             uint SharedArrayIndex = j + WaveGetLaneIndex() * 2 + LoopNum * 64;
             float4 Result = float4( groupMatOutput_x[SharedArrayIndex], 

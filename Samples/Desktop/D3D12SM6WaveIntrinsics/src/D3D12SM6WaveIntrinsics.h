@@ -82,6 +82,7 @@ private:
     ComPtr<IDXGISwapChain3> m_swapChain;
     ComPtr<ID3D12Device> m_d3d12Device;
     ComPtr<ID3D12Resource> m_renderPass1RenderTargets;
+    ComPtr<ID3D12Resource> m_WaveMatrixOutput;
     ComPtr<ID3D12Resource> m_renderPass2RenderTargets[FrameCount];
     ComPtr<ID3D12Resource> m_uiRenderTarget;
     ComPtr<ID3D12CommandAllocator> m_commandAllocators[FrameCount];

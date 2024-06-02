@@ -200,7 +200,7 @@ void D3D12SM6WaveIntrinsics::LoadPipeline()
         // Flags indicate that this descriptor heap can be bound to the pipeline 
         // and that descriptors contained in it can be referenced by a root table.
         D3D12_DESCRIPTOR_HEAP_DESC cbvHeapDesc = {};
-        cbvHeapDesc.NumDescriptors = (1 * FrameCount) + 2;  // 1 constant buffer for each frame and then 2 SRV. 
+        cbvHeapDesc.NumDescriptors = (1 * FrameCount) + 100;  // 1 constant buffer for each frame and then 2 SRV. 
         cbvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
         cbvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         ThrowIfFailed(m_d3d12Device->CreateDescriptorHeap(&cbvHeapDesc, IID_PPV_ARGS(&m_cbSrvHeap)));
@@ -259,16 +259,14 @@ void D3D12SM6WaveIntrinsics::LoadAssets()
         // This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
         featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
 
-        CD3DX12_DESCRIPTOR_RANGE1 ranges[1];
         CD3DX12_ROOT_PARAMETER1 rootParameters[1];
 
         if (FAILED(m_d3d12Device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
         {
             featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
         }
-        // Root signature for render pass2
-        ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_CBV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_NONE);
-        rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+        
+        rootParameters[0].InitAsConstants(4, 0, 0);
 
         D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
             D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
@@ -589,7 +587,43 @@ void D3D12SM6WaveIntrinsics::LoadSizeDependentResources()
             srvHandle.Offset(FrameCount, m_cbSrvDescriptorSize); // First ones are for constant buffers.
             m_d3d12Device->CreateShaderResourceView(m_renderPass1RenderTargets.Get(), nullptr, srvHandle);
         }
+        {
+            D3D12_RESOURCE_DESC textureDesc = {};
+            textureDesc.MipLevels = 1;
+            textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            textureDesc.Width = m_width;
+            textureDesc.Height = m_height;
+            textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+            textureDesc.DepthOrArraySize = 1;
+            textureDesc.SampleDesc.Count = 1;
+            textureDesc.SampleDesc.Quality = 0;
+            textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 
+            
+            m_d3d12Device->CreateCommittedResource(
+                &CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+                D3D12_HEAP_FLAG_NONE,
+                &textureDesc,
+                D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                NULL,
+                IID_PPV_ARGS(&m_WaveMatrixOutput));
+            NAME_D3D12_OBJECT(m_WaveMatrixOutput);
+
+            // Create SRV for the texture
+            CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(m_cbSrvHeap->GetCPUDescriptorHandleForHeapStart());
+            srvHandle.Offset(FrameCount + 2, m_cbSrvDescriptorSize); // First ones are for constant buffers.
+            m_d3d12Device->CreateShaderResourceView(m_WaveMatrixOutput.Get(), nullptr, srvHandle);
+            
+            CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(m_cbSrvHeap->GetCPUDescriptorHandleForHeapStart());
+            D3D12_UNORDERED_ACCESS_VIEW_DESC desc;
+            desc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            desc.Texture2D.MipSlice = 0;
+            desc.Texture2D.PlaneSlice = 0;
+            uavHandle.Offset(FrameCount + 3, m_cbSrvDescriptorSize); // First ones are for constant buffers.
+            m_d3d12Device->CreateUnorderedAccessView(m_WaveMatrixOutput.Get(), nullptr, &desc, uavHandle);
+        }
+        
         // Create the UI render target and an RTV for it.
         {
             D3D12_RESOURCE_DESC textureDesc = {};
@@ -754,7 +788,7 @@ void D3D12SM6WaveIntrinsics::RenderScene()
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
 
     // Set up render target
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderPass1RenderTargets.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderPass1RenderTargets.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET));
     CD3DX12_CPU_DESCRIPTOR_HANDLE renderPass1RtvHandle(m_rtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, m_rtvDescriptorSize);
     m_commandList->OMSetRenderTargets(1, &renderPass1RtvHandle, FALSE, nullptr);
 
@@ -765,13 +799,33 @@ void D3D12SM6WaveIntrinsics::RenderScene()
     m_commandList->IASetVertexBuffers(0, 1, &m_renderPass1VertexBufferView);
     m_commandList->DrawInstanced(3, 1, 0, 0);
 
-    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderPass1RenderTargets.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_renderPass1RenderTargets.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE));
+
+    // Dispatch WMMA
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_WaveMatrixOutput.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS));
+
+    m_commandList->SetPipelineState(m_WaveMatrixPSO.Get());
+
+    m_commandList->SetComputeRootSignature(m_SM66RootSignature.Get());
+
+    UINT ViewportWidth = m_viewport.Width;
+    UINT ViewportHeight = m_viewport.Height;
+    UINT Parmas[4] = { ViewportWidth, ViewportHeight, FrameCount, FrameCount + 3 };
+    m_commandList->SetComputeRoot32BitConstants(0, 4, Parmas, 0);
+    auto DivideAndRoundUp = [](const XMUINT2& NumThread, const XMUINT2& GroupSize) {
+        return XMUINT2((NumThread.x + GroupSize.x - 1) / GroupSize.x, (NumThread.y + GroupSize.y - 1) / GroupSize.y);
+    };
+    
+    XMUINT2 DispatchDims = DivideAndRoundUp({ ViewportWidth, ViewportHeight }, { 16,16 });
+    m_commandList->Dispatch(DispatchDims.x, DispatchDims.y, 1);
+
+    m_commandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(m_WaveMatrixOutput.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
     // Render Pass 2: Merge UI layer and the intermediate texture from render pass 1 together.
     m_commandList->SetPipelineState(m_renderPass2PSO.Get());
     m_commandList->SetGraphicsRootSignature(m_renderPass2RootSignature.Get());
     CD3DX12_GPU_DESCRIPTOR_HANDLE gpuCbvDescriptorHandle(m_cbSrvHeap->GetGPUDescriptorHandleForHeapStart(), m_frameIndex, m_cbSrvDescriptorSize);
-    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvDescriptorHandle(m_cbSrvHeap->GetGPUDescriptorHandleForHeapStart(), FrameCount, m_cbSrvDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvDescriptorHandle(m_cbSrvHeap->GetGPUDescriptorHandleForHeapStart(), FrameCount + 2, m_cbSrvDescriptorSize);
     m_commandList->SetGraphicsRootDescriptorTable(0, gpuCbvDescriptorHandle);
     m_commandList->SetGraphicsRootDescriptorTable(1, gpuSrvDescriptorHandle);
     m_commandList->RSSetViewports(1, &m_viewport);
